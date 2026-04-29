@@ -1,10 +1,10 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/**/*.js", "use": "@vercel/node" },
-    { "src": "server.js", "use": "@vercel/node" }
+    { "src": "api/**/*.js", "use": "@vercel/node" }
   ],
   "routes": [
+    { "src": "/api/health", "dest": "/api/health.js" },
     { "src": "/api/auth/login", "dest": "/api/auth/login.js" },
     { "src": "/api/auth/getUserInfo", "dest": "/api/auth/getUserInfo.js" },
     { "src": "/api/faction/choose", "dest": "/api/faction/choose.js" },
@@ -17,6 +17,6 @@
     { "src": "/api/economy/consume", "dest": "/api/economy/consume.js" },
     { "src": "/api/admin/updateQuest", "dest": "/api/admin/updateQuest.js" },
     { "src": "/api/admin/resetSeason", "dest": "/api/admin/resetSeason.js" },
-    { "src": "/api/health", "dest": "/server.js" }
+    { "src": "/(.*)", "dest": "/api/health.js" }
   ]
 }
