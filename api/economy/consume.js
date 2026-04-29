@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb, saveDb } = require('../db');
 const authUser = require('../auth/middleware');
 
 module.exports = async (req, res) => {
@@ -21,37 +21,46 @@ module.exports = async (req, res) => {
   try {
     const db = getDb();
 
-    const user = db.prepare(`SELECT * FROM users WHERE openid = ?`).get(openid);
-    if (!user) {
+    const userIdx = db.users.findIndex(u => u.openid === openid);
+    if (userIdx < 0) {
       return res.status(404).json({ code: 404, msg: '用户不存在' });
     }
 
+    const user = db.users[userIdx];
     if (user.euros < amount) {
       return res.status(400).json({ code: 400, msg: `余额不足，当前余额: ${user.euros}` });
     }
 
     const now = Date.now();
-    const seasonPointsEarned = amount; // 1 point per yuan
+    const seasonPointsEarned = amount;
 
-    // 事务：扣款 + 写消费记录 + 加赛季分 + 累计消费
-    const tx = db.transaction(() => {
-      db.prepare(`UPDATE users SET euros=euros-?, season_points=season_points+?, total_consumed=total_consumed+?, updated_at=? WHERE openid=?`)
-        .run(amount, seasonPointsEarned, amount, now, openid);
+    // 扣款 + 写消费记录 + 加赛季分 + 累计消费
+    db.users[userIdx].euros -= amount;
+    db.users[userIdx].season_points = (db.users[userIdx].season_points || 0) + seasonPointsEarned;
+    db.users[userIdx].total_consumed = (db.users[userIdx].total_consumed || 0) + amount;
+    db.users[userIdx].updated_at = now;
 
-      db.prepare(`INSERT INTO consumption (openid, amount, remark, created_at) VALUES (?, ?, ?, ?)`)
-        .run(openid, amount, remark || '', now);
+    // 写消费记录
+    db.consumption.push({ openid, amount, remark: remark || '', created_at: now });
 
-      // 更新赛季阵营分
-      if (user.faction_type) {
-        db.prepare(`UPDATE seasons SET ${user.faction_type}_points=${user.faction_type}_points+? WHERE status='active'`)
-          .run(seasonPointsEarned);
-        db.prepare(`UPDATE factions SET total_points=total_points+? WHERE id=?`)
-          .run(seasonPointsEarned, user.faction_type);
+    // 更新赛季阵营分
+    if (user.faction_type) {
+      const seasonIdx = db.seasons.findIndex(s => s.status === 'active');
+      if (seasonIdx >= 0) {
+        const col = user.faction_type + '_points';
+        if (db.seasons[seasonIdx][col] !== undefined) {
+          db.seasons[seasonIdx][col] += seasonPointsEarned;
+        }
       }
-    });
-    tx();
+      const factionIdx = db.factions.findIndex(f => f.id === user.faction_type);
+      if (factionIdx >= 0) {
+        db.factions[factionIdx].total_points = (db.factions[factionIdx].total_points || 0) + seasonPointsEarned;
+      }
+    }
 
-    const updated = db.prepare(`SELECT euros, season_points, total_consumed FROM users WHERE openid=?`).get(openid);
+    saveDb(db);
+
+    const updated = db.users.find(u => u.openid === openid);
 
     res.json({
       code: 200,

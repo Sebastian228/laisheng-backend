@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb } = require('../db');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {
@@ -9,17 +9,16 @@ module.exports = async (req, res) => {
     const db = getDb();
 
     // 阵营排行榜
-    const factionRankings = db.prepare(`
-      SELECT id, name, type, total_points, member_count
-      FROM factions ORDER BY total_points DESC
-    `).all().map((f, i) => ({
-      rank: i + 1,
-      id: f.id,
-      name: f.name,
-      type: f.type,
-      totalPoints: f.total_points,
-      memberCount: f.member_count
-    }));
+    const factionRankings = [...db.factions]
+      .sort((a, b) => b.total_points - a.total_points)
+      .map((f, i) => ({
+        rank: i + 1,
+        id: f.id,
+        name: f.name,
+        type: f.type,
+        totalPoints: f.total_points,
+        memberCount: f.member_count
+      }));
 
     // 每个阵营 top20 个人
     const topN = 20;
@@ -27,21 +26,19 @@ module.exports = async (req, res) => {
     const FACTION_TYPES = ['corp', 'gang', 'solo'];
 
     for (const ft of FACTION_TYPES) {
-      const rows = db.prepare(`
-        SELECT openid, nickname, avatar, season_points, level
-        FROM users
-        WHERE faction_type = ? AND season_points > 0
-        ORDER BY season_points DESC LIMIT ?
-      `).all(ft, topN);
-
-      TOP_INDIVIDUALS_PER_FACTION[ft] = rows.map((u, i) => ({
-        rank: i + 1,
-        openid: u.openid,
-        nickname: u.nickname,
-        avatar: u.avatar,
-        seasonPoints: u.season_points,
-        level: u.level
-      }));
+      const rows = db.users
+        .filter(u => u.faction_type === ft && u.season_points > 0)
+        .sort((a, b) => b.season_points - a.season_points)
+        .slice(0, topN)
+        .map((u, i) => ({
+          rank: i + 1,
+          openid: u.openid,
+          nickname: u.nickname,
+          avatar: u.avatar,
+          seasonPoints: u.season_points,
+          level: u.level
+        }));
+      TOP_INDIVIDUALS_PER_FACTION[ft] = rows;
     }
 
     res.json({

@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb } = require('../db');
 const authUser = require('../auth/middleware');
 
 module.exports = async (req, res) => {
@@ -18,26 +18,13 @@ module.exports = async (req, res) => {
     const db = getDb();
 
     // 获取所有活跃任务（未过期或无过期时间）
-    const quests = db.prepare(`
-      SELECT id, name, description, type, euros_reward, bd_reward,
-             sup_reward, sp_reward, target, expires_at
-      FROM quests
-      WHERE (expires_at IS NULL OR expires_at > ?)
-    `).all(now);
-
-    // 获取用户在 quests 表的当前值（quest.current 用于阵营任务类型）
-    const questMap = Object.fromEntries(quests.map(q => [q.id, q]));
+    const quests = db.quests.filter(q => !q.expires_at || q.expires_at > now);
 
     // 获取用户任务进度
-    const userQuests = db.prepare(`
-      SELECT quest_id, progress, completed, claimed, claimed_at
-      FROM user_quests
-      WHERE openid = ?
-    `).all(openid);
-
+    const userQuests = db.userQuests.filter(uq => uq.openid === openid);
     const userProgressMap = Object.fromEntries(userQuests.map(uq => [uq.quest_id, uq]));
 
-    // 组装返回数据，合并任务定义 + 用户进度
+    // 组装返回数据
     const result = quests.map(q => {
       const uq = userProgressMap[q.id];
       return {
@@ -50,9 +37,8 @@ module.exports = async (req, res) => {
         supReward: q.sup_reward,
         spReward: q.sp_reward,
         target: q.target,
-        current: q.current, // 阵营任务全局进度
+        current: q.current,
         expiresAt: q.expires_at,
-        // 用户个人进度
         progress: uq ? uq.progress : 0,
         completed: uq ? !!uq.completed : false,
         claimed: uq ? !!uq.claimed : false,

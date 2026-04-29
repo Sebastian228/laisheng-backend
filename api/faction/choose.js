@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb, saveDb } = require('../db');
 const config = require('../../config');
 const authUser = require('../auth/middleware');
 
@@ -27,37 +27,39 @@ module.exports = async (req, res) => {
     const db = getDb();
     const cleanSub = sub_faction.trim();
 
-    const user = db.prepare(`SELECT * FROM users WHERE openid = ?`).get(openid);
-    if (!user) {
+    const userIdx = db.users.findIndex(u => u.openid === openid);
+    if (userIdx < 0) {
       return res.status(404).json({ code: 404, msg: '用户不存在' });
     }
 
+    const user = db.users[userIdx];
     if (user.faction_type) {
       return res.status(400).json({ code: 400, msg: `你已经加入了阵营，无法重复选择（当前: ${user.faction_type}）` });
     }
 
-    // 原子操作：更新用户阵营 + 增加阵营成员数
-    const updateUser = db.prepare(`
-      UPDATE users SET faction_type=?, sub_faction=?, updated_at=? WHERE openid=?
-    `);
-    const updateFaction = db.prepare(`
-      UPDATE factions SET member_count=member_count+1, updated_at=? WHERE id=?
-    `);
-
     const now = Date.now();
-    const tx = db.transaction(() => {
-      updateUser.run(faction_type, cleanSub, now, openid);
-      updateFaction.run(now, faction_type);
-    });
-    tx();
+
+    // 更新用户阵营
+    db.users[userIdx].faction_type = faction_type;
+    db.users[userIdx].sub_faction = cleanSub;
+    db.users[userIdx].updated_at = now;
+
+    // 增加阵营成员数
+    const factionIdx = db.factions.findIndex(f => f.id === faction_type);
+    if (factionIdx >= 0) {
+      db.factions[factionIdx].member_count = (db.factions[factionIdx].member_count || 0) + 1;
+      db.factions[factionIdx].updated_at = now;
+    }
 
     // 发放入伙奖励：+100 euros, +10 supplies
-    db.prepare(`
-      UPDATE users SET euros=euros+100, supplies=supplies+10, updated_at=? WHERE openid=?
-    `).run(now, openid);
+    db.users[userIdx].euros = (db.users[userIdx].euros || 0) + 100;
+    db.users[userIdx].supplies = (db.users[userIdx].supplies || 0) + 10;
+    db.users[userIdx].updated_at = now;
 
-    const updatedUser = db.prepare(`SELECT * FROM users WHERE openid = ?`).get(openid);
-    const updatedFaction = db.prepare(`SELECT * FROM factions WHERE id = ?`).get(faction_type);
+    saveDb(db);
+
+    const updatedUser = db.users.find(u => u.openid === openid);
+    const updatedFaction = db.factions.find(f => f.id === faction_type);
 
     res.json({
       code: 200,

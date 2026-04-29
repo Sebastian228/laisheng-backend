@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb } = require('../db');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {
@@ -7,11 +7,7 @@ module.exports = async (req, res) => {
 
   try {
     const db = getDb();
-    const factions = db.prepare(`
-      SELECT id, name, type, total_points, member_count, updated_at
-      FROM factions
-      ORDER BY total_points DESC
-    `).all();
+    const factions = [...db.factions].sort((a, b) => b.total_points - a.total_points);
 
     res.json({
       code: 200,

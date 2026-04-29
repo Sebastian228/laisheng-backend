@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb } = require('../../db');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {
@@ -8,15 +8,12 @@ module.exports = async (req, res) => {
   try {
     const db = getDb();
 
-    const season = db.prepare(`SELECT * FROM seasons WHERE status='active' LIMIT 1`).get();
+    const season = db.seasons.find(s => s.status === 'active');
     if (!season) {
       return res.status(404).json({ code: 404, msg: '当前无活跃赛季' });
     }
 
-    const factions = db.prepare(`
-      SELECT id, name, type, total_points, member_count
-      FROM factions ORDER BY total_points DESC
-    `).all();
+    const factions = [...db.factions].sort((a, b) => b.total_points - a.total_points);
 
     res.json({
       code: 200,

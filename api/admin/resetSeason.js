@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb, saveDb } = require('../../db');
 const config = require('../../config');
 const authUser = require('../auth/middleware');
 
@@ -20,46 +20,56 @@ module.exports = async (req, res) => {
     const db = getDb();
 
     // 获取当前赛季
-    const currentSeason = db.prepare(`SELECT * FROM seasons WHERE status='active' LIMIT 1`).get();
-    if (!currentSeason) {
+    const currentSeasonIdx = db.seasons.findIndex(s => s.status === 'active');
+    if (currentSeasonIdx < 0) {
       return res.status(404).json({ code: 404, msg: '当前无活跃赛季' });
     }
+    const currentSeason = db.seasons[currentSeasonIdx];
 
     // 归档赛季前三名玩家
     const winners = {};
     for (const type of ['corp', 'gang', 'solo']) {
-      const top = db.prepare(`
-        SELECT openid, nickname, avatar, season_points
-        FROM users WHERE faction_type=? AND season_points > 0
-        ORDER BY season_points DESC LIMIT 3
-      `).all(type);
+      const top = db.users
+        .filter(u => u.faction_type === type && u.season_points > 0)
+        .sort((a, b) => b.season_points - a.season_points)
+        .slice(0, 3)
+        .map(u => ({ openid: u.openid, nickname: u.nickname, avatar: u.avatar, season_points: u.season_points }));
       winners[type] = top;
     }
 
-    // 更新旧赛季状态为 archived，保存 winners
-    db.prepare(`UPDATE seasons SET status='archived', winners=? WHERE id=?`)
-      .run(JSON.stringify(winners), currentSeason.id);
+    // 更新旧赛季状态为 archived
+    db.seasons[currentSeasonIdx].status = 'archived';
+    db.seasons[currentSeasonIdx].winners = JSON.stringify(winners);
 
     // 重置所有用户赛季积分
-    db.prepare(`UPDATE users SET season_points=0`);
+    db.users.forEach(u => { u.season_points = 0; });
 
     // 重置阵营总分
-    db.prepare(`UPDATE factions SET total_points=0`);
+    db.factions.forEach(f => { f.total_points = 0; });
 
     // 创建新赛季
     const newId = 's' + (parseInt(currentSeason.id.replace('s', ''), 10) + 1);
     const now = Date.now();
-    const newEnd = now + 60 * 24 * 60 * 60 * 1000; // 60 days
+    const newEnd = now + 60 * 24 * 60 * 60 * 1000;
     const seasonNames = ['夜之城争霸', '霓虹风暴', '银手归来', '武侍复兴', '来生序章'];
     const nameIdx = parseInt(currentSeason.id.replace('s', ''), 10) % seasonNames.length;
     const newName = `第${parseInt(currentSeason.id.replace('s', ''), 10) + 1}赛季 · ${seasonNames[nameIdx]}`;
 
-    db.prepare(`
-      INSERT INTO seasons (id, name, start_date, end_date, status)
-      VALUES (?, ?, ?, ?, 'active')
-    `).run(newId, newName, now, newEnd);
+    db.seasons.push({
+      id: newId,
+      name: newName,
+      start_date: now,
+      end_date: newEnd,
+      status: 'active',
+      corp_points: 0,
+      gang_points: 0,
+      solo_points: 0,
+      winners: '[]'
+    });
 
-    const newSeason = db.prepare(`SELECT * FROM seasons WHERE id=?`).get(newId);
+    saveDb(db);
+
+    const newSeason = db.seasons.find(s => s.id === newId);
 
     res.json({
       code: 200,

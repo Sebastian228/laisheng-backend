@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb, saveDb } = require('../db');
 const authUser = require('../auth/middleware');
 
 module.exports = async (req, res) => {
@@ -24,29 +24,31 @@ module.exports = async (req, res) => {
   try {
     const db = getDb();
 
-    const quest = db.prepare(`SELECT * FROM quests WHERE id = ?`).get(questId);
+    const quest = db.quests.find(q => q.id === questId);
     if (!quest) {
       return res.status(404).json({ code: 404, msg: '任务不存在' });
     }
 
-    const existing = db.prepare(`SELECT * FROM user_quests WHERE openid=? AND quest_id=?`).get(openid, questId);
+    const existingIdx = db.userQuests.findIndex(uq => uq.openid === openid && uq.quest_id === questId);
 
-    if (!existing) {
+    if (existingIdx < 0) {
       const newProgress = progressDelta;
       const completed = newProgress >= quest.target ? 1 : 0;
-      db.prepare(`INSERT INTO user_quests (openid, quest_id, progress, completed) VALUES (?, ?, ?, ?)`)
-        .run(openid, questId, newProgress, completed);
+      db.userQuests.push({ openid, quest_id: questId, progress: newProgress, completed, claimed: 0, claimed_at: null });
     } else {
+      const existing = db.userQuests[existingIdx];
       if (existing.claimed) {
         return res.status(400).json({ code: 400, msg: '该任务已领取奖励，无法继续提交' });
       }
       const newProgress = existing.progress + progressDelta;
       const completed = newProgress >= quest.target ? 1 : 0;
-      db.prepare(`UPDATE user_quests SET progress=?, completed=? WHERE openid=? AND quest_id=?`)
-        .run(newProgress, completed, openid, questId);
+      db.userQuests[existingIdx].progress = newProgress;
+      db.userQuests[existingIdx].completed = completed;
     }
 
-    const updated = db.prepare(`SELECT progress, completed FROM user_quests WHERE openid=? AND quest_id=?`).get(openid, questId);
+    saveDb(db);
+
+    const updated = db.userQuests.find(uq => uq.openid === openid && uq.quest_id === questId);
 
     res.json({
       code: 200,

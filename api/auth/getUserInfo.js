@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb } = require('../db');
 const authUser = require('./middleware');
 
 module.exports = async (req, res) => {
@@ -15,34 +15,43 @@ module.exports = async (req, res) => {
     const { openid } = payload;
     const db = getDb();
 
-    const user = db.prepare(`
-      SELECT openid, nickname, avatar, faction_type, sub_faction, level,
-             euros, braindance, supplies, season_points, total_consumed, created_at
-      FROM users WHERE openid = ?
-    `).get(openid);
+    const user = db.users.find(u => u.openid === openid);
 
     if (!user) {
       return res.status(404).json({ code: 404, msg: '用户不存在' });
     }
 
-    // 获取用户已领取的赛季积分信息
-    const season = db.prepare(`SELECT id, name FROM seasons WHERE status = 'active' LIMIT 1`).get();
+    // 获取活跃赛季
+    const season = db.seasons.find(s => s.status === 'active');
     const seasonId = season ? season.id : null;
 
     // 获取用户任务进度
-    const quests = db.prepare(`
-      SELECT uq.quest_id, uq.progress, uq.completed, uq.claimed, uq.claimed_at,
-             q.name, q.description, q.type, q.euros_reward, q.bd_reward,
-             q.sup_reward, q.sp_reward, q.target, q.expires_at
-      FROM user_quests uq
-      JOIN quests q ON q.id = uq.quest_id
-      WHERE uq.openid = ?
-    `).all(openid);
+    const userQuestRows = db.userQuests.filter(uq => uq.openid === openid);
+    const quests = userQuestRows.map(uq => {
+      const q = db.quests.find(qq => qq.id === uq.quest_id);
+      if (!q) return null;
+      return {
+        quest_id: uq.quest_id,
+        progress: uq.progress,
+        completed: uq.completed,
+        claimed: uq.claimed,
+        claimed_at: uq.claimed_at,
+        name: q.name,
+        description: q.description,
+        type: q.type,
+        euros_reward: q.euros_reward,
+        bd_reward: q.bd_reward,
+        sup_reward: q.sup_reward,
+        sp_reward: q.sp_reward,
+        target: q.target,
+        expires_at: q.expires_at
+      };
+    }).filter(Boolean);
 
     // 获取用户所在阵营信息
     let faction = null;
     if (user.faction_type) {
-      faction = db.prepare(`SELECT * FROM factions WHERE id = ?`).get(user.faction_type);
+      faction = db.factions.find(f => f.id === user.faction_type);
     }
 
     res.json({

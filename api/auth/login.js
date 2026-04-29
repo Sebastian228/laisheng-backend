@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb, saveDb } = require('../db');
 const config = require('../../config');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
       // 正式模式：通过code换取openid
       const appid = config.WECHAT_APPID;
       const appsecret = config.WECHAT_APPSECRET;
-      
+
       if (appid !== 'YOUR_APPID') {
         const wxRes = await axios.get(
           `https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${appsecret}&js_code=${code}&grant_type=authorization_code`
@@ -36,22 +36,39 @@ module.exports = async (req, res) => {
     }
 
     const db = getDb();
-    let user = db.prepare('SELECT * FROM users WHERE openid = ?').get(openid);
+    let user = db.users.find(u => u.openid === openid);
     const isNew = !user;
 
     if (isNew) {
-      db.prepare(`
-        INSERT INTO users (openid, nickname, avatar, created_at)
-        VALUES (?, ?, ?, ?)
-      `).run(openid, nickname || '', avatar || '', Date.now());
-      user = db.prepare('SELECT * FROM users WHERE openid = ?').get(openid);
+      const newUser = {
+        openid,
+        nickname: nickname || '',
+        avatar: avatar || '',
+        faction_type: null,
+        sub_faction: null,
+        level: 1,
+        euros: 0,
+        braindance: 0,
+        supplies: 0,
+        season_points: 0,
+        total_consumed: 0,
+        created_at: Date.now(),
+        updated_at: Date.now()
+      };
+      db.users.push(newUser);
+      saveDb(db);
+      user = newUser;
     } else {
       // 更新昵称头像
       if (nickname || avatar) {
-        db.prepare(`
-          UPDATE users SET nickname=COALESCE(?,nickname), avatar=COALESCE(?,avatar), updated_at=? WHERE openid=?
-        `).run(nickname||null, avatar||null, Date.now(), openid);
-        user = db.prepare('SELECT * FROM users WHERE openid = ?').get(openid);
+        const idx = db.users.findIndex(u => u.openid === openid);
+        if (idx >= 0) {
+          if (nickname) db.users[idx].nickname = nickname;
+          if (avatar) db.users[idx].avatar = avatar;
+          db.users[idx].updated_at = Date.now();
+          saveDb(db);
+          user = db.users[idx];
+        }
       }
     }
 

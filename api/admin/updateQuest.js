@@ -1,4 +1,4 @@
-const { getDb } = require('../../server');
+const { getDb, saveDb } = require('../../db');
 const config = require('../../config');
 const authUser = require('../auth/middleware');
 
@@ -25,23 +25,24 @@ module.exports = async (req, res) => {
   try {
     const db = getDb();
 
-    const quest = db.prepare(`SELECT target FROM quests WHERE id=?`).get(questId);
+    const quest = db.quests.find(q => q.id === questId);
     if (!quest) {
       return res.status(404).json({ code: 404, msg: '任务不存在' });
     }
 
     const completed = progress >= quest.target ? 1 : 0;
 
-    const existing = db.prepare(`SELECT id FROM user_quests WHERE openid=? AND quest_id=?`).get(openid, questId);
-    if (existing) {
-      db.prepare(`UPDATE user_quests SET progress=?, completed=? WHERE openid=? AND quest_id=?`)
-        .run(progress, completed, openid, questId);
+    const existingIdx = db.userQuests.findIndex(uq => uq.openid === openid && uq.quest_id === questId);
+    if (existingIdx >= 0) {
+      db.userQuests[existingIdx].progress = progress;
+      db.userQuests[existingIdx].completed = completed;
     } else {
-      db.prepare(`INSERT INTO user_quests (openid, quest_id, progress, completed) VALUES (?,?,?,?)`)
-        .run(openid, questId, progress, completed);
+      db.userQuests.push({ openid, quest_id: questId, progress, completed, claimed: 0, claimed_at: null });
     }
 
-    const updated = db.prepare(`SELECT progress, completed FROM user_quests WHERE openid=? AND quest_id=?`).get(openid, questId);
+    saveDb(db);
+
+    const updated = db.userQuests.find(uq => uq.openid === openid && uq.quest_id === questId);
 
     res.json({
       code: 200,

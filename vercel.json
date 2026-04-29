@@ -2,21 +2,5 @@
   "version": 2,
   "builds": [
     { "src": "api/**/*.js", "use": "@vercel/node" }
-  ],
-  "routes": [
-    { "src": "/api/health", "dest": "/api/health.js" },
-    { "src": "/api/auth/login", "dest": "/api/auth/login.js" },
-    { "src": "/api/auth/getUserInfo", "dest": "/api/auth/getUserInfo.js" },
-    { "src": "/api/faction/choose", "dest": "/api/faction/choose.js" },
-    { "src": "/api/faction/stats", "dest": "/api/faction/stats.js" },
-    { "src": "/api/quest/list", "dest": "/api/quest/list.js" },
-    { "src": "/api/quest/submit", "dest": "/api/quest/submit.js" },
-    { "src": "/api/quest/claim", "dest": "/api/quest/claim.js" },
-    { "src": "/api/season/info", "dest": "/api/season/info.js" },
-    { "src": "/api/leaderboard", "dest": "/api/leaderboard/index.js" },
-    { "src": "/api/economy/consume", "dest": "/api/economy/consume.js" },
-    { "src": "/api/admin/updateQuest", "dest": "/api/admin/updateQuest.js" },
-    { "src": "/api/admin/resetSeason", "dest": "/api/admin/resetSeason.js" },
-    { "src": "/(.*)", "dest": "/api/health.js" }
   ]
 }
